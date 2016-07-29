@@ -106,31 +106,31 @@ public class ShelterRescue {
 
         //String[] dogs = text.split("KENNEL ANIMAL ID SEXYR/MO  BREED");
         String[] dogs = text.split("\\r\\n");
-        for (String dogSection : dogs) {
-            if (!dogSection.isEmpty()) {
-                Dog dog = new Dog();
-                String genInfo, yrMo;
-                int years;
-                float months;
+        Dog dog = new Dog();
+        String line, yrMo;
+        int years;
+        float months;
+        boolean multiDogPage = false;
+        for (int i = 0; i < dogs.length; i++) {
+            line = dogs[i];
 
-                String[] details = dogSection.split("\r\n");
+            // Find kennel ID and following animal information
+            matcher = kennelPattern.matcher(line);
+            if (matcher.find()) {
+                if (!dogs[i-2].contains("Verify"))
+                    multiDogPage = true;
 
-                genInfo = details[10];
-
-                // Find kennel ID
-                matcher = kennelPattern.matcher(genInfo);
-                matcher.find();
                 dog.setKennel(matcher.group(0));
-                genInfo = genInfo.substring(dog.getKennel().length() + 1); // remove kennel ID and trailing space
+                line = line.substring(dog.getKennel().length() + 1); // remove kennel ID and trailing space
 
                 // Find animal ID
-                matcher = animalIDPattern.matcher(genInfo);
+                matcher = animalIDPattern.matcher(line);
                 matcher.find();
                 dog.setAnimalID(matcher.group(0));
-                genInfo = genInfo.substring(dog.getAnimalID().length() + 1); // remove animal ID and trailing space
+                line = line.substring(dog.getAnimalID().length() + 1); // remove animal ID and trailing space
 
                 // Find year and month, will be backwards because of the PDF reader
-                matcher = yearMonthPattern.matcher(genInfo);
+                matcher = yearMonthPattern.matcher(line);
                 matcher.find();
                 // ex: 0  10.00YR/ MO
                 yrMo = matcher.group(0);
@@ -139,93 +139,113 @@ public class ShelterRescue {
                 dog.setYears(years);
                 dog.setMonths(months);
 
+
                 // remove age info from string once processed
-                genInfo = genInfo.substring(0, genInfo.length() - yrMo.length());
+                line = line.substring(0, line.length() - yrMo.length());
 
                 // Mark dog as adoptable when appropriate
-                if (genInfo.contains("ADOPTABLE")) {
+                if (line.contains("ADOPTABLE")) {
                     dog.setAdoptable(true);
                     // remove ADOPTABLE from string so that the rest is easier to parse
-                    genInfo = genInfo.substring(0, genInfo.indexOf("ADOPTABLE"));
+                    line = line.substring(0, line.indexOf("ADOPTABLE"));
                 }
 
                 // Get and remove non-adoptable reason
-                if (genInfo.contains("BROWN HOLD")) {
+                if (line.contains("BROWN HOLD")) {
                     // remove BROWN HOLD
-                    genInfo = genInfo.substring(0, genInfo.indexOf("BROWN HOLD"));
-                } else if (genInfo.contains("HOLDNOTIFY")) {
+                    line = line.substring(0, line.indexOf("BROWN HOLD"));
+                } else if (line.contains("HOLDNOTIFY")) {
                     // remove HODLNOTIFY
-                    genInfo = genInfo.substring(0, genInfo.indexOf("HOLDNOTIFY"));
-                } else if (genInfo.contains("STRAY WAIT")) {
+                    line = line.substring(0, line.indexOf("HOLDNOTIFY"));
+                } else if (line.contains("STRAY WAIT")) {
                     // remove STRAY WAIT
-                    genInfo = genInfo.substring(0, genInfo.indexOf("STRAY WAIT"));
+                    line = line.substring(0, line.indexOf("STRAY WAIT"));
                 }
 
                 // Sex should be character after the breed
-                dog.setSex(String.valueOf(genInfo.charAt(genInfo.length() - 1)));
+                dog.setSex(String.valueOf(line.charAt(line.length() - 1)));
                 // Remove the sex from the string
-                genInfo = genInfo.substring(0, genInfo.length() - 1);
+                line = line.substring(0, line.length() - 1);
 
                 // Extract color from the info
                 for (String color : colors) {
-                    int colorIndex = genInfo.indexOf(color);
+                    int colorIndex = line.indexOf(color);
                     if (colorIndex > -1) {
                         if (colorIndex == 0) {
-                            dog.setColor1(genInfo.substring(0, color.length() + 1));
+                            dog.setColor1(line.substring(0, color.length() + 1));
                         } else {
-                            dog.setColor2(genInfo.substring(colorIndex, colorIndex +  color.length() + 1));
+                            dog.setColor2(line.substring(colorIndex, colorIndex +  color.length() + 1));
                         }
                     }
                 }
 
                 // Remove color info
-                genInfo = genInfo.substring(dog.getColor1().length() + 4 + dog.getColor2().length());
+                line = line.substring(dog.getColor1().length() + 4 + dog.getColor2().length());
 
                 // Remaining general info should be the dog breed
-                dog.setBreed(genInfo);
+                dog.setBreed(line);
+            }
 
-                // Line 11 will be name if the animal has one, else it will be STRAY/OWNER SUR
-                // If there is a name, then line 12 is STRAY/OWNER SUR
-                if (details[12].contains("STRAY")) {
-                    dog.setName(details[11]);
+
+            if (dogs[i].contains("STRAY  ") || dogs[i].contains("OWNER SUR")) {
+                String intake, intakeDate, intakeStatus;
+                int intakeIndex;
+
+                // Line before STRAY/OWNER SUR will be name if the animal has one, else it will be STRAY/OWNER SUR
+                // If there is a name, then line i is STRAY/OWNER SUR
+                if (dogs[i].contains("STRAY  ")) {
+                    if (!dogs[i - 1].contains(dog.getKennel())) {
+                        dog.setName(dogs[i - 1]);
+                    }
+
                     dog.setStray(true);
-                } else if (details[12].contains("OWNER SUR")) {
-                    dog.setName(details[11]);
+                } else if (dogs[i].contains("OWNER SUR")) {
+                    if (!dogs[i - 1].contains(dog.getKennel())) {
+                        dog.setName(dogs[i - 1]);
+                    }
+
                     dog.setOwnerSur(true);
-                    dog.setOwnerSurReason(details[12]);
+                    dog.setOwnerSurReason(dogs[i]);
                 } else {
-                    if (details[11].contains("STRAY")) {
+                    if (dogs[i].contains("STRAY  ")) {
                         dog.setStray(true);
-                    } else if (details[11].contains("OWNER SUR")) {
+                    } else if (dogs[i].contains("OWNER SUR")) {
                         dog.setOwnerSur(true);
-                        dog.setOwnerSurReason(details[11]);
+                        dog.setOwnerSurReason(dogs[i]);
                     }
                 }
 
-                String intake, intakeDate, intakeStatus;
-                int intakeIndex;
-                if (dog.getName().isEmpty()) {
-                    intake = details[12];
-                    intakeIndex = 12;
+
+                if (dog.getName().isEmpty() && !multiDogPage) {
+                    intake = dogs[i];
+                    intakeIndex = i;
                 } else {
-                    intake = details[13];
-                    intakeIndex = 13;
+                    intake = dogs[i+1];
+                    intakeIndex = i+1;
                 }
 
+                int ind = intake.indexOf("Intake Date: ");
+                int len = "Intake Date: ".length();
+                int ind2 = intake.indexOf("Intake Status:");
                 intakeDate = intake.substring(intake.indexOf("Intake Date: ") + "Intake Date: ".length(), intake.indexOf("Intake Status:"));
                 dog.setIntakeDate(intakeDate);
 
                 // Due out info should be directly after intake info
-                String outStatus = details[intakeIndex + 1];
+                String outStatus = dogs[intakeIndex + 1];
                 dog.setDueOutStatus(outStatus.substring(outStatus.indexOf("Due Out Status: ") + "Due Out Status: ".length()));
 
+                System.out.println("test");
+
                 try {
+                    // This animal's info should be complete, output it to file and reset the object
                     writer.write(dog.toString() + "\r\n");
+                    writer.flush();
+                    dog = new Dog();
+                    multiDogPage = false;
                 } catch (Exception e) {
                     System.out.println("Could not write to output file at " + outputFilePath);
                 }
             }
-
         }
 
         try {
